@@ -79,12 +79,12 @@ int main(int argc,char *argv[]) {
         // cout << damp << endl;
 
         _J = makeJacobiMatrix(C, XYZ, m, n);
-        J = _J.block<10000, 3023>(0, 7); // custom block <2mn, 6m+3n-7>
+        J = _J.block<2000, 623>(0, 7); // custom block <2mn, 6m+3n-7>
         Jt = J.transpose();
 
         cout << "making JtJ and grad..." << endl;
         JtJ = Jt * J;
-        L = JtJ + damp * MatrixXd::Identity(3023, 3023); // custom row and column (6m+3n-7, 6m+3n-7)
+        L = JtJ + damp * MatrixXd::Identity(623, 623); // custom row and column (6m+3n-7, 6m+3n-7)
         a = - Jt * e;
 
         cout << "solving..." << endl;

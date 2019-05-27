@@ -35,7 +35,7 @@ class Camera {
             int _n = XYZ.cols();
 
             MatrixXd XYZ_1 = MatrixXd::Ones(4, _n);
-            XYZ_1.block<3, 1000>(0, 0) = XYZ; // custom block size <3, n>
+            XYZ_1.block<3, 200>(0, 0) = XYZ; // custom block size <3, n>
             
             MatrixXd R_t(3, 4);
             R_t << R, t;
