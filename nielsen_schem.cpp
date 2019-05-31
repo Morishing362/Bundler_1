@@ -56,6 +56,7 @@ int main(int argc,char *argv[]) {
     double E, E_pls;
     VectorXd e, e_pls;
     VectorXd a;
+    VectorXd x(6*m - 7 + 3*n);
     VectorXd dx;
     MatrixXd _J, J, Jt, JtJ, L;
     double damp, gainfactor;
@@ -69,6 +70,27 @@ int main(int argc,char *argv[]) {
     for (int k = 0; k < 100; k++) {
         iter ++;
 
+        // make x vector
+        for (int i = 0; i < m - 1; i++) {
+            if (i == 0) {
+                x(0) = C[1].t(1);
+                x(1) = C[1].t(2);
+            }
+            else {
+                x(6*i - 1) = C[i+1].t(0);
+                x(6*i)     = C[i+1].t(1);
+                x(6*i + 1) = C[i+1].t(2);
+            }
+            x(6*i + 2) = 0;
+            x(6*i + 3) = 0;
+            x(6*i + 4) = 0;
+        }
+        for (int i = 0; i < n; i++) {
+            x(6*m - 7 + 3*i) = XYZ(0, i);
+            x(6*m - 6 + 3*i) = XYZ(1, i);
+            x(6*m - 5 + 3*i) = XYZ(2, i);
+        }
+
         for (int i = 0; i < m; i++) {
             C[i].reproject(XYZ);
         }
@@ -78,17 +100,21 @@ int main(int argc,char *argv[]) {
         cout << "Reprojection Error : " << E << endl;
         // cout << damp << endl;
 
-        _J = makeJacobiMatrix(C, XYZ, m, n);
+        _J = makeJacobiMatrix(C, XYZ, m, n);      
         J = _J.block<2000, 623>(0, 7); // custom block <2mn, 6m+3n-7>
         Jt = J.transpose();
 
-        cout << "making JtJ and grad..." << endl;
+        // cout << "making JtJ and grad..." << endl;
         JtJ = Jt * J;
         L = JtJ + damp * MatrixXd::Identity(623, 623); // custom row and column (6m+3n-7, 6m+3n-7)
         a = - Jt * e;
 
-        cout << "solving..." << endl;
+        // cout << "solving..." << endl;
         dx = L.partialPivLu().solve(a);
+
+        if ( dx.norm() / x.norm() < 10e-12 ) {
+            break;
+        }
 
         C_pls = C;
         XYZ_pls = XYZ;
@@ -121,6 +147,7 @@ int main(int argc,char *argv[]) {
             C_pls[i+1].R = exp_wx * C_pls[i+1].R;
         }
 
+        // renew XYZ_pls prameters.
         for (int i = 0; i < n; i++) {
             XYZ_pls(0, i) += dx(6*m - 7 + 3*i);
             XYZ_pls(1, i) += dx(6*m - 6 + 3*i);
@@ -147,7 +174,7 @@ int main(int argc,char *argv[]) {
             XYZ = XYZ_pls;
         }
 
-        if (a.norm() <= 10e-5) {
+        if (a.norm() <= 10e-12 ) {
             break;
         }
     }
