@@ -12,7 +12,6 @@ MatrixXd XYZ_new;
 vector<Camera> C; // list of cameras.
 vector<Camera> C_new;
 
-
 void readData(string path) {
     ifstream file;
     file.open(path);
@@ -64,45 +63,24 @@ int main(int argc,char *argv[]) {
     MatrixXd _J, J, Jt, JtJ, L;
     double damp, gainfactor;
 
-    double Beta, Gamma, q1, q2, nu;
-    Beta = 2; Gamma = 3; q1 = 0.25; q2 = 0.75; nu = 0;
+    double nu;
+    nu = 0;
     double e1, e2, e3, e4;
     e1 =  e2 = e3 = 10e-12; e4 = 0;
     bool stop = false;
 
-    damp = 1;
+    damp = 10;
 
     // make x vector
-    for (int i = 0; i < m - 1; i++) {
-        if (i == 0) {
-            x(0) = C[1].t(1);
-            x(1) = C[1].t(2);
-        }
-        else {
-            x(6*i - 1) = C[i+1].t(0);
-            x(6*i)     = C[i+1].t(1);
-            x(6*i + 1) = C[i+1].t(2);
-        }
-        x(6*i + 2) = 0;
-        x(6*i + 3) = 0;
-        x(6*i + 4) = 0;
-    }
-    for (int i = 0; i < n; i++) {
-        x(6*m - 7 + 3*i) = XYZ(0, i);
-        x(6*m - 6 + 3*i) = XYZ(1, i);
-        x(6*m - 5 + 3*i) = XYZ(2, i);
-    }
+    x = CreateXvec_from_CandXYZ(C, XYZ, m, n);
 
     for (int i = 0; i < m; i++) {
         C[i].reproject(XYZ);
     }
     e = funcVec(C, m, n);
-    E = reprojectionError(e);
-
-    cout << "Reprojection Error : " << E << endl;
 
     _J = makeJacobiMatrix(C, XYZ, m, n);      
-    J = _J.block<2000, 623>(0, 7); // custom block <2mn, 6m+3n-7>
+    J = _J.block<10000, 3023>(0, 7); // custom block <2mn, 6m+3n-7>
     Jt = J.transpose();
     JtJ = Jt * J;
     a = - Jt * e;
@@ -111,50 +89,20 @@ int main(int argc,char *argv[]) {
     for (int k = 0; k < 100; k++) {
         iter ++;
 
-        L = JtJ + damp * MatrixXd::Identity(623, 623); // custom row and column (6m+3n-7, 6m+3n-7)
+        E = reprojectionError(e);
+        
+        cout << E << endl;
+        // cout << damp << endl;
+
+        L = JtJ + damp * MatrixXd::Identity(3023, 3023); // custom row and column (6m+3n-7, 6m+3n-7)
         dx = L.partialPivLu().solve(a);
 
         if ( dx.norm() / (x.norm() + e2) <= e2 ) {
             stop = true;
         } else {
-            C_new = C;
-            XYZ_new = XYZ;
+            C_new = Create_C_new(C, dx, m);
+            XYZ_new = Create_XYZ_new(XYZ, dx, m, n);
 
-            // renew C_new prameters.
-            for (int i = 0; i < m - 1; i++) {
-                if (i == 0) {
-                    C_new[1].t(1) += dx(0);
-                    C_new[1].t(2) += dx(1);
-                } else {
-                    C_new[i+1].t(0) += dx(6*i - 1);
-                    C_new[i+1].t(1) += dx(6*i);
-                    C_new[i+1].t(2) += dx(6*i + 1);
-                }
-
-                Vector3d w;
-                MatrixXd wx(3, 3);
-                MatrixXd exp_wx(3, 3);
-
-                w << dx(6*i + 2), dx(6*i + 3), dx(6*i + 4);
-                double theta = sqrt(w.dot(w));
-
-                wx << 0, -w(2), w(1),
-                    w(2), 0, -w(0),
-                    -w(1), w(0), 0;
-
-                exp_wx = MatrixXd::Identity(3, 3) + (sin(theta) / theta)*wx + ((1-cos(theta)) / (theta*theta))*wx*wx;
-
-                C_new[i+1].R = exp_wx * C_new[i+1].R;
-            }
-
-            // renew XYZ_new prameters.
-            for (int i = 0; i < n; i++) {
-                XYZ_new(0, i) += dx(6*m - 7 + 3*i);
-                XYZ_new(1, i) += dx(6*m - 6 + 3*i);
-                XYZ_new(2, i) += dx(6*m - 5 + 3*i);
-            }
-            
-            // make funcvec e_new and reprojection Error E_new.
             for (int i = 0; i < m; i++) {
                 C_new[i].reproject(XYZ_new);
             }
@@ -168,37 +116,15 @@ int main(int argc,char *argv[]) {
                 C = C_new;
                 XYZ = XYZ_new;
 
-                // make x vector
-                for (int i = 0; i < m - 1; i++) {
-                    if (i == 0) {
-                        x(0) = C[1].t(1);
-                        x(1) = C[1].t(2);
-                    }
-                    else {
-                        x(6*i - 1) = C[i+1].t(0);
-                        x(6*i)     = C[i+1].t(1);
-                        x(6*i + 1) = C[i+1].t(2);
-                    }
-                    x(6*i + 2) = 0;
-                    x(6*i + 3) = 0;
-                    x(6*i + 4) = 0;
-                }
-                for (int i = 0; i < n; i++) {
-                    x(6*m - 7 + 3*i) = XYZ(0, i);
-                    x(6*m - 6 + 3*i) = XYZ(1, i);
-                    x(6*m - 5 + 3*i) = XYZ(2, i);
-                }
+                x = CreateXvec_from_CandXYZ(C, XYZ, m, n);
 
                 for (int i = 0; i < m; i++) {
                     C[i].reproject(XYZ);
                 }
                 e = funcVec(C, m, n);
-                E = reprojectionError(e);
-
-                cout << "Reprojection Error : " << E << endl;
 
                 _J = makeJacobiMatrix(C, XYZ, m, n);      
-                J = _J.block<2000, 623>(0, 7); // custom block <2mn, 6m+3n-7>
+                J = _J.block<10000, 3023>(0, 7); // custom block <2mn, 6m+3n-7>
                 Jt = J.transpose();
                 JtJ = Jt * J;
                 a = - Jt * e;

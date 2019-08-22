@@ -5,9 +5,9 @@
 // global variable
 int n, m; // n = number of points, m = number of cameras.
 MatrixXd XYZ;// points cloud shaped matrix(3, n).
-MatrixXd XYZ_pls;
+MatrixXd XYZ_new;
 vector<Camera> C; // list of cameras.
-vector<Camera> C_pls;
+vector<Camera> C_new;
 
 
 void readData(string path) {
@@ -51,45 +51,26 @@ int main(int argc,char *argv[]) {
 
     outXYZ(XYZ, argv[2]); // output initial points cloud.
 
-    XYZ_pls = XYZ;
+    XYZ_new = XYZ;
 
     double E, E_pls;
     VectorXd e, e_pls;
     VectorXd a;
     VectorXd x(6*m - 7 + 3*n);
+    VectorXd x_new(6*m - 7 + 3*n);
     VectorXd dx;
     MatrixXd _J, J, Jt, JtJ, L;
     double damp, gainfactor;
 
-    double Beta, Gamma, q1, q2;
-    Beta = 2; Gamma = 3; q1 = 0.25; q2 = 0.75;
-
-    damp = 1;
+    double Beta, wip;
+    Beta = 0.1;
+    damp = 10;
 
     int iter = 0;
     for (int k = 0; k < 100; k++) {
         iter ++;
 
-        // make x vector
-        for (int i = 0; i < m - 1; i++) {
-            if (i == 0) {
-                x(0) = C[1].t(1);
-                x(1) = C[1].t(2);
-            }
-            else {
-                x(6*i - 1) = C[i+1].t(0);
-                x(6*i)     = C[i+1].t(1);
-                x(6*i + 1) = C[i+1].t(2);
-            }
-            x(6*i + 2) = 0;
-            x(6*i + 3) = 0;
-            x(6*i + 4) = 0;
-        }
-        for (int i = 0; i < n; i++) {
-            x(6*m - 7 + 3*i) = XYZ(0, i);
-            x(6*m - 6 + 3*i) = XYZ(1, i);
-            x(6*m - 5 + 3*i) = XYZ(2, i);
-        }
+        x = CreateXvec_from_CandXYZ(C, XYZ, m, n);
 
         for (int i = 0; i < m; i++) {
             C[i].reproject(XYZ);
@@ -97,81 +78,41 @@ int main(int argc,char *argv[]) {
         e = funcVec(C, m, n);
         E = reprojectionError(e);
 
-        cout << "Reprojection Error : " << E << endl;
+        // cout << "Reprojection Error : " << E << endl;
+        cout << E << endl;
         // cout << damp << endl;
 
         _J = makeJacobiMatrix(C, XYZ, m, n);      
         J = _J.block<2000, 623>(0, 7); // custom block <2mn, 6m+3n-7>
         Jt = J.transpose();
 
-        // cout << "making JtJ and grad..." << endl;
         JtJ = Jt * J;
         L = JtJ + damp * MatrixXd::Identity(623, 623); // custom row and column (6m+3n-7, 6m+3n-7)
         a = - Jt * e;
 
-        // cout << "solving..." << endl;
         dx = L.partialPivLu().solve(a);
 
         if ( dx.norm() / x.norm() < 10e-12 ) {
             break;
         }
 
-        C_pls = C;
-        XYZ_pls = XYZ;
-
-        // renew C_pls prameters.
-        for (int i = 0; i < m - 1; i++) {
-            if (i == 0) {
-                C_pls[1].t(1) += dx(0);
-                C_pls[1].t(2) += dx(1);
-            }
-            else {
-                C_pls[i+1].t(0) += dx(6*i - 1);
-                C_pls[i+1].t(1) += dx(6*i);
-                C_pls[i+1].t(2) += dx(6*i + 1);
-            }
-
-            Vector3d w;
-            MatrixXd wx(3, 3);
-            MatrixXd exp_wx(3, 3);
-
-            w << dx(6*i + 2), dx(6*i + 3), dx(6*i + 4);
-            double theta = sqrt(w.dot(w));
-
-            wx << 0, -w(2), w(1),
-                  w(2), 0, -w(0),
-                  -w(1), w(0), 0;
-
-            exp_wx = MatrixXd::Identity(3, 3) + (sin(theta) / theta)*wx + ((1-cos(theta)) / (theta*theta))*wx*wx;
-
-            C_pls[i+1].R = exp_wx * C_pls[i+1].R;
-        }
-
-        // renew XYZ_pls prameters.
-        for (int i = 0; i < n; i++) {
-            XYZ_pls(0, i) += dx(6*m - 7 + 3*i);
-            XYZ_pls(1, i) += dx(6*m - 6 + 3*i);
-            XYZ_pls(2, i) += dx(6*m - 5 + 3*i);
-        }
+        C_new = Create_C_new(C, dx, m);
+        XYZ_new = Create_XYZ_new(XYZ, dx, m, n);
 
         for (int i = 0; i < m; i++) {
-            C_pls[i].reproject(XYZ_pls);
+            C_new[i].reproject(XYZ_new);
         }
-        e_pls = funcVec(C_pls, m, n);
+        e_pls = funcVec(C_new, m, n);
         E_pls = reprojectionError(e_pls);
 
-        gainfactor = (E - E_pls) / (dx.dot(damp * dx + a) / 2);
-
-        if (gainfactor < q1) { 
-            damp = damp * Beta; 
-        }
-        else if (q2 < gainfactor) {
-            damp = damp / Gamma;
-        }
-
-        if (0 < gainfactor) {
-            C = C_pls;
-            XYZ = XYZ_pls;
+        if (E_pls < E) {
+            x_new = x + dx;
+            wip = (x.dot(x_new)) / (x.norm() * x_new.norm());
+            damp = damp * pow(Beta, wip);
+            C = C_new;
+            XYZ = XYZ_new;
+        } else {
+            damp = damp / Beta;
         }
 
         if (a.norm() <= 10e-12 ) {
